@@ -1,0 +1,33 @@
+{% extends "base.html" %}
+
+{% block title %}Home - Point Cloud Viewer{% endblock %}
+
+{% block extra_css %}
+<link rel="stylesheet" href="{{ url_for('static', filename='css/index.css') }}">
+{% endblock %}
+
+{% block content %}
+<div class="container index-content">
+    <div class="index-title">
+        Point Cloud Viewer
+    </div>
+    <form id="upload-form" action="{{ url_for('upload_pointcloud') }}" method="POST" enctype="multipart/form-data" class="upload-form">
+        <input type="file" name="pointcloud" accept=".pcd" required>
+        <button type="submit" class="btn btn-primary">Upload and Visualize</button>
+    </form>
+</div>
+
+<!-- Loading Overlay -->
+<div id="loading-overlay" class="loading-overlay">
+    <div class="loading-spinner"></div>
+</div>
+{% endblock %}
+
+{% block extra_scripts %}
+<script>
+    document.getElementById('upload-form').addEventListener('submit', function(e) {
+        // Show loading overlay
+        document.getElementById('loading-overlay').style.display = 'flex';
+    });
+</script>
+{% endblock %}

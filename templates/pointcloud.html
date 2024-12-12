@@ -1,0 +1,227 @@
+{% extends "base.html" %}
+
+{% block title %}Point Cloud Viewer{% endblock %}
+
+{% block extra_css %}
+<link rel="stylesheet" href="{{ url_for('static', filename='css/pointcloud.css') }}">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.124/examples/js/controls/OrbitControls.js"></script>
+{% endblock %}
+
+{% block content %}
+<div id="viz-controls" class="controls-container">
+  <a href="{{ url_for('index') }}" class="btn btn-primary back-btn">Home</a>
+</div>
+
+<div id="pointcloud-container" class="pointcloud-container"></div>
+
+<div id="loading" class="loading-overlay" style="display: none;">
+    <div class="loading-spinner"></div>
+    <div id="loading-status" class="loading-status">Initializing...</div>
+</div>
+
+{% endblock %}
+
+{% block extra_scripts %}
+<script>
+
+    const loadingOverlay = document.getElementById('loading');
+    const statusText = document.getElementById('loading-status');
+
+    let animationId; // To store the requestAnimationFrame ID
+    let renderer, scene, camera, controls;
+
+    function updateStatus(message) {
+        statusText.textContent = message;
+    }
+
+    function visualizePointCloudAsFilteredVoxels(pointCloudData) {
+        loadingOverlay.style.display = 'flex'; // Ensure overlay is visible
+        updateStatus('Processing point cloud data...');
+    
+        setTimeout(() => {
+            scene = new THREE.Scene();
+            camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+            renderer = new THREE.WebGLRenderer();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            document.getElementById('pointcloud-container').appendChild(renderer.domElement);
+    
+            const voxelSize = 1.0; // Size of each voxel cube
+            const voxelMaterial = new THREE.MeshLambertMaterial({
+                color: new THREE.Color(0xffff55)
+            });
+    
+            // Add light to the scene
+            const light = new THREE.DirectionalLight(0xffffff, 1);
+            light.position.set(5, 10, 7.5);
+            scene.add(light);
+    
+            const ambientLight = new THREE.AmbientLight(0x404040, 1); // Soft white light
+            scene.add(ambientLight);
+
+            const points = pointCloudData.points;
+            const colors = pointCloudData.colors;
+            
+            points.forEach((point, index) => {
+                const voxelMaterial = new THREE.MeshLambertMaterial({ color: new THREE.Color(colors[index][0], colors[index][1], colors[index][2]) });
+                const voxelMesh = new THREE.Mesh(new THREE.BoxGeometry(voxelSize, voxelSize, voxelSize), voxelMaterial);
+            
+                voxelMesh.position.set(point[0], point[1], point[2]);
+                scene.add(voxelMesh);
+            });
+    
+            // Fit camera to voxels
+            const box = new THREE.Box3().setFromObject(scene);
+            const center = box.getCenter(new THREE.Vector3());
+            const size = box.getSize(new THREE.Vector3());
+            const maxDim = Math.max(size.x, size.y, size.z);
+    
+            camera.position.set(center.x + maxDim * 2, center.y + maxDim * 2, center.z + maxDim * 2);
+            camera.lookAt(center);
+    
+            // Orbit controls for camera
+            controls = new THREE.OrbitControls(camera, renderer.domElement);
+            controls.update();
+
+            // Render Scene Once
+            renderer.render(scene, camera);
+
+            loadingOverlay.style.display = 'none';
+
+            // Re-render Only on Camera Changes
+            controls.addEventListener('change', () => {
+                renderer.render(scene, camera);
+            });
+    
+        }, 100); // Delay to allow status text to render
+
+        // Cleanup when leaving the page
+        window.addEventListener('beforeunload', cleanup);
+
+        window.addEventListener('visibilitychange', () => {
+          if (document.visibilityState === 'hidden') {
+            cleanup();
+          }
+        });
+
+        window.addEventListener('resize', () => {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            renderer.render(scene, camera);
+        });
+
+    }
+
+    function visualizePointCloud(pointCloudData) {
+        console.log(`Started visualizer!`);
+        scene = new THREE.Scene(); camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+        renderer = new THREE.WebGLRenderer();
+        
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        document.getElementById('pointcloud-container').appendChild(renderer.domElement);
+        
+        const geometry = new THREE.BufferGeometry();
+        const positions = new Float32Array(pointCloudData.points.flat());
+        
+        geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+        
+        const material = new THREE.PointsMaterial({ 
+            size: 0.05, 
+            vertexColors: true 
+        });
+        
+        const colors = new Float32Array(pointCloudData.colors.flat());
+        geometry.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+        
+        const points = new THREE.Points(geometry, material);
+        scene.add(points);
+
+        controls = new THREE.OrbitControls(camera, renderer.domElement);
+        controls.mouseButtons = { LEFT: THREE.MOUSE.ROTATE, MIDDLE: THREE.MOUSE.DOLLY, RIGHT: THREE.MOUSE.PAN };
+        camera.position.set(0, 20, 100);
+        controls.update();
+
+        function animate() {
+            animationId =requestAnimationFrame(animate);
+            controls.update();
+            renderer.render(scene, camera);
+        }
+        
+        animate();
+
+        // Hide loading overlay after rendering
+        loadingOverlay.style.display = 'none';
+
+        // Cleanup when leaving the page
+        window.addEventListener('beforeunload', cleanup);
+        window.addEventListener('visibilitychange', () => {
+          if (document.visibilityState === 'hidden') {
+            cleanup();
+          }
+        });
+    }
+
+    function cleanup() {
+        console.log('Cleaning up resources...');
+        
+        // Cancel animation frame
+        if (animationId) {
+            cancelAnimationFrame(animationId);
+            animationId = null;
+        }
+
+        // Dispose of controls
+        if (controls) {
+            controls.dispose();
+        }
+
+        // Dispose of all objects in the scene
+        scene.traverse((object) => {
+            if (object.geometry) object.geometry.dispose();
+            if (object.material) {
+                if (Array.isArray(object.material)) {
+                    object.material.forEach((material) => material.dispose());
+                } else {
+                    object.material.dispose();
+                }
+            }
+        });
+
+        // Dispose of the renderer
+        if (renderer) {
+            renderer.dispose();
+            const container = document.getElementById('pointcloud-container');
+            container.removeChild(renderer.domElement);
+        }
+
+        scene = null;
+        camera = null;
+        controls = null;
+        renderer = null;
+
+        console.log('Resources cleaned up.');
+    }
+    
+    // Show loading overlay before fetching data
+    loadingOverlay.style.display = 'flex';
+
+    // Dynamically handle different data routes
+    fetch("{{ url_for(data_route) }}", { 
+        method: 'POST',
+        {% if filename %}
+        body: new URLSearchParams({
+            'filename': '{{ filename }}'
+        })
+        {% endif %}
+    })
+    .then(response => response.json())
+    .then(visualizePointCloudAsFilteredVoxels)
+    .catch(error => {
+        console.error('Error:', error);
+        loadingOverlay.style.display = 'none'; // Hide overlay if there's an error
+    });
+
+</script>
+{% endblock %}
+
